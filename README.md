@@ -1,14 +1,11 @@
 #ReadMe: Application of Machine Learning in Computational Diabetic Retinopathy Detection
 
-Subsequent an Instruction is provided, how results within the underlying thesis can be reproduced.
+Subsequent an Instruction is provided, how results within the paper can be reproduced.
 Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
-CPU code run on a OS X El Capitan, while GPU code run on a CentOs 7.
 
 Software Requirements
 
 	•	Matlab
-	•	Caffe
-	•	Digits
 	•	CUDA Toolkit (Version >= 7.0)
 
 Hardware Requirements
@@ -35,10 +32,6 @@ Data Format and Structure
 		⁃	Folder with Subfolders
 		⁃	Each Folder represents a particular Stage of DR (e.g. ../RetinalImages/0/ ../RetinalImages/1/ ../RetinalImages/2/ ../RetinalImages/3/ ../RetinalImages/4/)
 		⁃	Retinal Grey Scale Images (Suggested: Green Component) are within the corresponding Folder 
-
-	•	Neural Network training in DIGITS
-		⁃	see Feature Extraction on CPU
-		⁃	Retinal Images are also allowed to be RGB
 
 SVM Approach / Feature Extraction
 
@@ -99,41 +92,20 @@ SVM Approach / Classification:
 	•	Import resulting Feature Matrix to Matlab’s Classification Learner
 	•	Train with desired Classification Learner
 
-Neural Network Approach:
-
-	•	Start Digits
-	•	Create New Classification Data Set
-		Data Set Configurations are given in the Thesis
-	•	Create New Classification Model
-		Model Configurations are referrenced in the Thesis
-		Custom Neural Network Architectures are attached in the Folder ../PredictionModels/ObjectBased/MaxNetwork/
-	•	PreProcessing for establishment of Custom Neural Network Model can be accomplished on CPU respectively GPU
-
-		CPU-Case:
-		⁃	Open File ../ImageProcessing/CPU/preProcessing.m in Matlab
-		⁃	Execute
-				function [ ] = preProcessing(imagePath, destinationPath)
-
-		⁃	Corresponding Explanation of Variables is stated within the m-File
-
-		GPU-Case:
-		⁃ Compile Software in Folder ./ImageProcessing/GPU/PreProcessing/ with enclosed makefile (nvcc compiler required)
-		⁃ Afterwards follow Instructions in Software - Execution (Similar to the GPU Execution of Feature Extraction)
-
 Results:
 
 	•	Feature Matrices, obtained from Feature Extraction Process, are saved in ../Features/
 		Remark, that they are distinguished by Diabetic Retinopathy Classes
-	•	Trained Neural Network Models and SVM Models are saved to the Folder ../PredictionModels/
 
 Edit / Redistribution:
 
 	•	Free for non commercial use
 	•	Feel free to use, edit or redistribute the established ImageProcessing Library for scientific purpose
-	•	Feel free to use trained Networks in your own scientific and non commercial projects
 	•	Please refer to:
-		@unpublished{Kapsecker:2016,
-			editor = {Kapsecker, Maximilian}
-			title = {Application of Machine Learning in Computational Diabetic Retinopathy Detection}
+		@article{KapseckerLiebmann:2016,
+			editor = {Kapsecker, Maximilian and Liebmann, Manfred}
+			title = {A Feture Extraction Approach for the Computational Diabetic Retinopathy Detection in Retinal Images}
+			journal = {Medical Systems},
 			year = {2016}
+			month = {11}
 		}
