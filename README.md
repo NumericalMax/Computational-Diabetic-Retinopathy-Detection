@@ -24,7 +24,9 @@ Data Format and Structure
 
 	•	88702 JPEG Images
 	•	Feature Extraction on GPU
-		⁃	Folder with Retinal Grey Scale Images (Suggested: Green Component)
+		⁃	Folder with Subfolders
+		⁃	Each Folder represents a particular Stage of DR (e.g. ../RetinalImages/0/ ../RetinalImages/1/ ../RetinalImages/2/ ../RetinalImages/3/ ../RetinalImages/4/)
+		⁃	Retinal Grey Scale Images (Suggested: Green Component) are within the corresponding Folder 
 		⁃	.txt File with labels holding following Format:
 			10_left,10_right,11_left,11_right,…,30000_left
 		⁃	A prior matching evaluates whether a particular label is contained within the folder, hence number of labels do not have to match number of images in the referrenced folder
@@ -36,16 +38,15 @@ Data Format and Structure
 SVM Approach / Feature Extraction
 
 	•	Matlab / CPU
-		⁃	Primary used for comfortable Visualization of Results
-            		and Establishment of Image Processing Pipeline
-		⁃	Open File ../ImageProcessing/CPU/featureExtraction.m in Matlab
+		⁃	Primary used for comfortable Visualization of Results and Establishment of Image Processing Pipeline
+		⁃	Open File ../CPU/featureExtraction.m in Matlab
 		⁃	Execute
 				function [ MAT, rowValue ] = featureExtraction(imagePath, class, destinationPath, plot)
 
 		⁃	Corresponding Explanation of Variables is stated within the m-File
 
 	•	CUDA / GPU
-		⁃	Compile Software in Folder ./ImageProcessing/GPU/FeatureExtraction/ with enclosed makefile (nvcc compiler required)
+		⁃	Compile Software in Folder ./GPU/ with enclosed makefile (nvcc compiler required)
 		⁃	Execute: ./featureExtraction
 		⁃	Exemplary Run:
 			===================================================================
