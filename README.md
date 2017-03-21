@@ -106,7 +106,6 @@ Edit / Redistribution:
 		@article{KapseckerLiebmann:2016,
 			editor = {Kapsecker, Maximilian and Liebmann, Manfred}
 			title = {A Feture Extraction Approach for the Computational Diabetic Retinopathy Detection in Retinal Images}
-			journal = {Medical Systems},
 			year = {2016}
 			month = {11}
 		}
