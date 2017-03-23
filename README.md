@@ -102,10 +102,4 @@ Edit / Redistribution:
 
 	•	Free for non commercial use
 	•	Feel free to use, edit or redistribute the established ImageProcessing Library for scientific purpose
-	•	Please refer to:
-		@article{KapseckerLiebmann:2016,
-			editor = {Kapsecker, Maximilian and Liebmann, Manfred}
-			title = {A Feture Extraction Approach for the Computational Diabetic Retinopathy Detection in Retinal Images}
-			year = {2016}
-			month = {11}
-		}
+	•	Please refer to this repository.
