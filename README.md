@@ -1,6 +1,5 @@
 #ReadMe: A Feture Extraction Approach for the Computational Diabetic Retinopathy Detection in Retinal Images
 
-Subsequent an Instruction is provided, how results within the paper can be reproduced.
 Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
 
 Software Requirements
