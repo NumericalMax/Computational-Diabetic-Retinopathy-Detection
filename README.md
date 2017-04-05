@@ -2,6 +2,9 @@
 
 Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
 
+Acknowledgement
+I like to acknowledge Dr. Manfred Liebmann @liebmann from the University of Graz for guiding me through the process of creating this software.
+
 Software Requirements
 
 	•	Matlab
@@ -99,6 +102,6 @@ Results:
 
 Edit / Redistribution:
 
-	•	Free for non commercial use
-	•	Feel free to use, edit or redistribute the established ImageProcessing Library for scientific purpose
-	•	Please refer to this repository.
+	•	MIT License
+	•	See License File
+	
