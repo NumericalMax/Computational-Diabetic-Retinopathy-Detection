@@ -2,27 +2,28 @@
 
 Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
 
-Acknowledgement
+## Acknowledgement
+
 I like to acknowledge Dr. Manfred Liebmann from the University of Graz for guiding me through the process of creating this software.
 
-Software Requirements
+## Software Requirements
 
 	•	Matlab
 	•	CUDA Toolkit (Version >= 7.0)
 
-Hardware Requirements
+## Hardware Requirements
 
 	•	NVIDIA GPU with CUDA
         	Minimum Architecture: 2.0 (not tested / makefile has to be adapted)
         	Suggested Architecture: >= 3.5
 	•	Modern CPU
 
-Data Resource
+## Data Resource
 
 	•	Jorge Cuadros and George Bresnick Eyepacs: An adaptable telemedicine system for diabetic retinopathy screening Journal of diabetes science and technology (Online), 3(3):509–516, 05 200
 	•	Further information: https://www.kaggle.com/c/diabetic-retinopathy-detection
 
-Data Format and Structure
+## Data Format and Structure
 
 	•	88702 JPEG Images
 	•	Feature Extraction on GPU
@@ -37,7 +38,7 @@ Data Format and Structure
 		⁃	Each Folder represents a particular Stage of DR (e.g. ../RetinalImages/0/ ../RetinalImages/1/ ../RetinalImages/2/ ../RetinalImages/3/ ../RetinalImages/4/)
 		⁃	Retinal Grey Scale Images (Suggested: Green Component) are within the corresponding Folder 
 
-SVM Approach / Feature Extraction
+## SVM Approach / Feature Extraction
 
 	•	Matlab / CPU
 		⁃	Primary used for comfortable Visualization of Results and Establishment of Image Processing Pipeline
@@ -74,7 +75,7 @@ SVM Approach / Feature Extraction
 			Finished successfully!
 			===================================================================
 
-SVM Approach / Classification:
+## SVM Approach / Classification:
 
 	•	Resulting Feature Matrix is saved in following Form
 
@@ -95,12 +96,12 @@ SVM Approach / Classification:
 	•	Import resulting Feature Matrix to Matlab’s Classification Learner
 	•	Train with desired Classification Learner
 
-Results:
+## Results:
 
 	•	Feature Matrices, obtained from Feature Extraction Process, are saved in ../Features/
 		Remark, that they are distinguished by Diabetic Retinopathy Classes
 
-Edit / Redistribution:
+## Edit / Redistribution:
 
 	•	MIT License
 	•	See License File
