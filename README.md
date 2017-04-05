@@ -3,7 +3,7 @@
 Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
 
 Acknowledgement
-I like to acknowledge Dr. Manfred Liebmann Mention @liebmann from the University of Graz for guiding me through the process of creating this software.
+I like to acknowledge Dr. Manfred Liebmann from the University of Graz for guiding me through the process of creating this software.
 
 Software Requirements
 
