@@ -1090,6 +1090,7 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
         }
 
 	histogramEqualization <<<gridSize, blockSize>>>(currentImage, outputImage, histTrafo, width, height);
+	gpuError(cudaThreadSynchronize());
 	gpuError(cudaFree(histTrafo));
 	
 	if(timing){
