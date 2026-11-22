@@ -1,108 +1,138 @@
-# A Feture Extraction Approach for the Computational Diabetic Retinopathy Detection in Retinal Images
+# Computational Diabetic Retinopathy Detection
 
-Remark, that GPU and CPU related proceedings were accomplished on a linux based machine.
+This project explores feature extraction from retinal photographs for diabetic retinopathy (DR) classification. It provides:
 
-## Acknowledgement
+- a MATLAB/CPU implementation for developing and visualizing the processing pipeline;
+- a CUDA/GPU implementation for large-batch image preprocessing;
+- feature matrices that can be used with MATLAB's Classification Learner or an SVM-based workflow.
 
-I like to acknowledge Dr. Manfred Liebmann from the University of Graz for guiding me through the process of creating this software.
+The original CPU and GPU experiments were developed on Linux, but the source also targets macOS and other systems that provide compatible MATLAB/CUDA tooling.
 
-## Software Requirements
+## Project layout
 
-	•	Matlab
-	•	CUDA Toolkit (Version >= 7.0)
+```text
+CPU/
+  featureExtraction.m       MATLAB feature extraction pipeline
+GPU/
+  main.cpp                  CUDA preprocessing application
+  ImageProcessing.cpp/h     CUDA image-processing operations
+  Jpgd.cpp/h                JPEG decoder
+  Jpge.cpp/h                JPEG encoder
+  makefile                  Application and test build targets
+  tests/
+    ImageProcessingTest.cpp CUDA unit tests
+```
 
-## Hardware Requirements
+## Requirements
 
-	•	NVIDIA GPU with CUDA
-        	Minimum Architecture: 2.0 (not tested / makefile has to be adapted)
-        	Suggested Architecture: >= 3.5
-	•	Modern CPU
+### CPU/MATLAB
 
-## Data Resource
+- MATLAB with the Image Processing Toolbox
+- A folder containing retinal JPEG images
 
-	•	Jorge Cuadros and George Bresnick Eyepacs: An adaptable telemedicine system for diabetic retinopathy screening Journal of diabetes science and technology (Online), 3(3):509–516, 05 200
-	•	Further information: https://www.kaggle.com/c/diabetic-retinopathy-detection
+### GPU/CUDA
 
-## Data Format and Structure
+- An NVIDIA GPU and CUDA Toolkit
+- `nvcc`
+- Compute capability 3.5 or newer is used by the provided makefile
 
-	•	88702 JPEG Images
-	•	Feature Extraction on GPU
-		⁃	Folder with Subfolders
-		⁃	Each Folder represents a particular Stage of DR (e.g. ../RetinalImages/0/ ../RetinalImages/1/ ../RetinalImages/2/ ../RetinalImages/3/ ../RetinalImages/4/)
-		⁃	Retinal Grey Scale Images (Suggested: Green Component) are within the corresponding Folder 
-		⁃	.txt File with labels holding following Format:
-			10_left,10_right,11_left,11_right,…,30000_left
-		⁃	A prior matching evaluates whether a particular label is contained within the folder, hence number of labels do not have to match number of images in the referrenced folder
-	•	Feature Extraction on CPU
-		⁃	Folder with Subfolders
-		⁃	Each Folder represents a particular Stage of DR (e.g. ../RetinalImages/0/ ../RetinalImages/1/ ../RetinalImages/2/ ../RetinalImages/3/ ../RetinalImages/4/)
-		⁃	Retinal Grey Scale Images (Suggested: Green Component) are within the corresponding Folder 
+## Data format
 
-## SVM Approach / Feature Extraction
+Organize images by DR class:
 
-	•	Matlab / CPU
-		⁃	Primary used for comfortable Visualization of Results and Establishment of Image Processing Pipeline
-		⁃	Open File ../CPU/featureExtraction.m in Matlab
-		⁃	Execute
-				function [ MAT, rowValue ] = featureExtraction(imagePath, class, destinationPath, plot)
+```text
+RetinalImages/
+  0/
+  1/
+  2/
+  3/
+  4/
+```
 
-		⁃	Corresponding Explanation of Variables is stated within the m-File
+The GPU application expects a semicolon-separated `.txt` label file. Entries may use the format:
 
-	•	CUDA / GPU
-		⁃	Compile Software in Folder ./GPU/ with enclosed makefile (nvcc compiler required)
-		⁃	Execute: ./featureExtraction
-		⁃	Exemplary Run:
-			===================================================================
-			Image Processing Library
-			Version: 1.0
-		
-			On this system are 4 CUDA devices available.
-			Device: Tesla K20m  Streaming MP: 13  Compute Version: 3.5
-		
-			Directory to image resource: /home/kapsecker/imagesGrey/3/
-			Directory to image destination: /home/kapsecker/images/3/
-			Directory to labels: /home/kapsecker/res/labels.txt
-			-------------------------------------------------------------------
-			0/2086 : /home/kapsecker/imagesGrey/3/99_left.jpeg
-			1/2086 : /home/kapsecker/imagesGrey/3/99_right.jpeg
-			2/2086 : /home/kapsecker/imagesGrey/3/163_left.jpeg
-			…
-			2085/2086 : /home/kapsecker/imagesGrey/3/44333_left.jpeg
-			2086/2086 : /home/kapsecker/imagesGrey/3/44333_right.jpeg
-			-------------------------------------------------------------------
+```text
+10_left;10_right;11_left;11_right;30000_left
+```
 
-			Elapsed time: 135.79 seconds.
-			Finished successfully!
-			===================================================================
+It combines each label with the resource directory and appends `.jpeg`, then processes matching files. The input is assumed to be grayscale-compatible; the original pipeline recommends the green channel.
 
-## SVM Approach / Classification:
+## MATLAB/CPU feature extraction
 
-	•	Resulting Feature Matrix is saved in following Form
+Open `CPU/featureExtraction.m` in MATLAB and run:
 
-			Image,Class,Bloodvessels,Haemorrhages,Exudates,Contrast,
-			/home/kapsecker/imagesGrey/2/30_right.jpeg,2,0.000616252,0,0,0.255243,
-			/home/kapsecker/imagesGrey/2/40_left.jpeg,2,4.10808e-05,0,0,0.273186,
-			/home/kapsecker/imagesGrey/2/51_left.jpeg,2,4.98195e-06,0,0,0.116361,
-			/home/kapsecker/imagesGrey/2/54_left.jpeg,2,0.00131854,0,0,0.175058,
-			/home/kapsecker/imagesGrey/2/78_left.jpeg,2,0.000438692,0,0,0.114433,
-			/home/kapsecker/imagesGrey/2/78_right.jpeg,2,0.000346607,0,0,0.109931,
-			/home/kapsecker/imagesGrey/2/79_left.jpeg,2,4.25127e-06,0,0,0.191255,
-			/home/kapsecker/imagesGrey/2/79_right.jpeg,2,8.10398e-06,0,0,0.270105,
-			/home/kapsecker/imagesGrey/2/82_left.jpeg,2,0.00180359,0,0,0.650781,
-			/home/kapsecker/imagesGrey/2/129_left.jpeg,2,8.80809e-05,0,0,0.135238,
-			/home/kapsecker/imagesGrey/2/129_right.jpeg,2,0.000138166,0,0,0.148248,
-			…
+```matlab
+[MAT, rowValue] = featureExtraction( ...
+    imagePath, class, destinationPath, plot);
+```
 
-	•	Import resulting Feature Matrix to Matlab’s Classification Learner
-	•	Train with desired Classification Learner
+Arguments:
 
-## Results:
+- `imagePath`: directory containing retinal images;
+- `class`: DR stage assigned to this dataset;
+- `destinationPath`: directory for the generated feature table;
+- `plot`: `true` to inspect results interactively, or `false` for unattended extraction.
 
-	•	Feature Matrices, obtained from Feature Extraction Process, are saved in ../Features/
-		Remark, that they are distinguished by Diabetic Retinopathy Classes
+The resulting table includes `Label`, `Class`, `Bloodvessel`, `Exudate`, `Haemorrhages`, and `Contrast` features.
 
-## Edit / Redistribution:
+## CUDA/GPU preprocessing
 
-	•	MIT License
-	•	See License File
-	
+Build the application:
+
+```bash
+cd GPU
+make
+```
+
+Run it:
+
+```bash
+./preProcessing
+```
+
+The program prompts for:
+
+1. the DR stage;
+2. the directory containing source images;
+3. the destination directory;
+4. the path to the semicolon-separated label file.
+
+Processed RGB output is written to the destination directory, with the original image label as the filename.
+
+## CUDA tests
+
+The test executable checks image inversion, thresholding, subtraction, linear transformations, histogram operations, reductions, texture calculation, and Gaussian blur.
+
+```bash
+cd GPU
+make test
+```
+
+Tests require a working CUDA device and `nvcc`.
+
+To remove built executables:
+
+```bash
+make clean
+```
+
+## Classification
+
+The CPU feature matrix can be imported into MATLAB's Classification Learner for model training and evaluation. Keep the image label and class with the extracted blood-vessel, exudate, haemorrhage, and contrast features.
+
+Example feature header:
+
+```text
+Label,Class,Bloodvessel,Exudate,Haemorrhages,Contrast
+```
+
+## Dataset acknowledgment
+
+This project used retinal image data from:
+
+- Jorge Cuadros and George Bresnick, *Eyepacs: An adaptable telemedicine system for diabetic retinopathy screening*, Journal of Diabetes Science and Technology, 3(3):509-516, 2009.
+- The Kaggle diabetic retinopathy detection dataset: https://www.kaggle.com/c/diabetic-retinopathy-detection
+
+## License
+
+MIT License. See [LICENSE.txt](LICENSE.txt).
