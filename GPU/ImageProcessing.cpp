@@ -173,8 +173,7 @@ __device__ void addData256(volatile unsigned int *s_WarpHist, unsigned int data,
 
 __global__ void histogram256(uint8_t *inputImage, unsigned int *histogram, int width, int height){
 	
-	// ROUND UP... If width * height % 4 equals not zero it leads to a marginal wrong result
-	int dataN = width * height / 4;
+	int dataN = width * height;
 
 	const int globalTid = IMUL(blockIdx.x, blockDim.x) + threadIdx.x;
 	const int numThreads = IMUL(blockDim.x, gridDim.x);
@@ -208,13 +207,7 @@ __global__ void histogram256(uint8_t *inputImage, unsigned int *histogram, int w
 	// we are safe with the addData trick
 	for (int pos = globalTid; pos < dataN; pos += numThreads){
 
-		unsigned int data4 = inputImage[pos];
-
-		// Avoiding intra-warp shared memory collisions.
-		addData256(s_Hist + warpBase, (data4 >> 0) & 0xFFU, threadTag);
-		addData256(s_Hist + warpBase, (data4 >> 8) & 0xFFU, threadTag);
-		addData256(s_Hist + warpBase, (data4 >> 16) & 0xFFU, threadTag);
-		addData256(s_Hist + warpBase, (data4 >> 24) & 0xFFU, threadTag);
+		addData256(s_Hist + warpBase, inputImage[pos], threadTag);
 	}
 
 	__syncthreads();
@@ -242,8 +235,9 @@ __global__ void histogramEqualization(uint8_t *in, uint8_t *out, unsigned int *h
 	int index_y = blockIdx.y * blockDim.y + threadIdx.y;
 
 	int index = index_y * width + index_x;
-
-	out[index] = histTrafo[in[index]];
+	if (index_x < width && index_y < height){
+		out[index] = histTrafo[in[index]];
+	}
 }
 
 /*----------------------------------------------------------------------------------------
@@ -316,7 +310,7 @@ __global__ void dilationColumnGPU(uint8_t *in, uint8_t *out, int width, int heig
 	int gmPos = IMUL(start + threadIdx.y, width) + colStart;
 
 	for (int y = start + threadIdx.y; y <= finish; y += blockDim.y){
-		data[smPos] = ((y >= clampStart) && (y <= clampedEnd)) ? in[gmPos] : 0;
+		data[smPos] = ((y >= clampStart) && (y <= clampedEnd) && (colStart < width)) ? in[gmPos] : 0;
 		smPos += smemStride;
 		gmPos += gmemStride;
 	}
@@ -328,6 +322,8 @@ __global__ void dilationColumnGPU(uint8_t *in, uint8_t *out, int width, int heig
 
 	// Search for maximum in y-Direction
 	for (int y = begin + threadIdx.y; y <= clampEnd; y += blockDim.y){
+		if (colStart >= width)
+			break;
 		float max = 0;
 		for (int k = -radius; k <= radius; k++){
 			max = fmaxf((float)data[smPos + IMUL(k, 16)] * kernelStore[radius - k], max);
@@ -390,7 +386,7 @@ __global__ void erosionColumnGPU(uint8_t *in, uint8_t *out, int width, int heigh
 	int gmPos = IMUL(start + threadIdx.y, width) + colStart;
 
 	for (int y = start + threadIdx.y; y <= finish; y += blockDim.y){
-		data[smPos] = ((y >= clampStart) && (y <= clampedEnd)) ? in[gmPos] : 0;
+		data[smPos] = ((y >= clampStart) && (y <= clampedEnd) && (colStart < width)) ? in[gmPos] : 0;
 		smPos += smemStride;
 		gmPos += gmemStride;
 	}
@@ -401,6 +397,8 @@ __global__ void erosionColumnGPU(uint8_t *in, uint8_t *out, int width, int heigh
 	gmPos = IMUL(begin + threadIdx.y, width) + colStart;
 
 	for (int y = begin + threadIdx.y; y <= clampEnd; y += blockDim.y){
+		if (colStart >= width)
+			break;
 		float min = 256;
 		for (int k = -radius; k <= radius; k++){
 			if (kernelStore[radius - k] == 1){
@@ -470,7 +468,7 @@ __global__ void convolutionColumnGPU(uint8_t *out, uint8_t *in, int width, int h
 
 	// fill shared memory with required values
 	for (int y = start + threadIdx.y; y <= finish; y += blockDim.y){
-		data[smPos] = ((y >= clampStart) && (y <= clampedEnd)) ? in[gmPos] : 0;
+		data[smPos] = ((y >= clampStart) && (y <= clampedEnd) && (colStart < width)) ? in[gmPos] : 0;
 		smPos += smemStride;
 		gmPos += gmemStride;
 	}
@@ -480,6 +478,8 @@ __global__ void convolutionColumnGPU(uint8_t *out, uint8_t *in, int width, int h
 	smPos = IMUL(threadIdx.y + radius, 16) + threadIdx.x;
 	gmPos = IMUL(begin + threadIdx.y, width) + colStart;
 	for (int y = begin + threadIdx.y; y <= clampEnd; y += blockDim.y){
+		if (colStart >= width)
+			break;
 		float sum = 0;
 		for (int k = -radius; k <= radius; k++){
 			sum += (float)data[smPos + IMUL(k, 16)] * convolutionKernel[radius - k];
@@ -544,8 +544,10 @@ __global__ void maxElement(uint8_t *currentImage, int *value, int *location, int
 	while (i < n){
 		// Instead of loading one value to SM per thread, we load two values to SM.
 		// This affects Latency hiding and reduction of blocks needed
-		sdata[tid] = fmaxf(currentImage[i], currentImage[i + blockSize]);
-		slocation[tid] = (currentImage[i] > currentImage[i + blockSize]) ? 1000000 : (i + blockSize);
+		uint8_t first = currentImage[i];
+		uint8_t second = (i + blockSize < n) ? currentImage[i + blockSize] : 0;
+		sdata[tid] = fmaxf(first, second);
+		slocation[tid] = (first >= second) ? i : (i + blockSize);
 		
 		i += gridSize;
 	}
@@ -598,22 +600,22 @@ template <unsigned int blockSize>
 __device__ void warpMean(volatile double *sdata2, unsigned int tid){
 
         if (blockSize >= 64){
-                sdata2[tid] = (sdata2[tid + 32] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 32];
         }
         if (blockSize >= 32){
-                sdata2[tid] = (sdata2[tid + 16] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 16];
         }
         if (blockSize >= 16){
-                sdata2[tid] = (sdata2[tid + 8] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 8];
         }
         if (blockSize >= 8){
-                sdata2[tid] = (sdata2[tid + 4] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 4];
         }
         if (blockSize >= 4){
-                sdata2[tid] = (sdata2[tid + 2] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 2];
         }
         if (blockSize >= 2){
-                sdata2[tid] = (sdata2[tid + 1] + sdata2[tid]) / 2.0;
+                sdata2[tid] += sdata2[tid + 1];
         }
 }
 
@@ -632,9 +634,9 @@ __global__ void meanValue(uint8_t *currentImage, double *value, int width, int h
 
         // Fill Shared Memory Array
         while (i < n){
-                // Instead of loading one value to SM per thread, we load two values to SM.
-                // This affects Latency hiding and reduction of blocks needed
-                sdata3[tid] = (currentImage[i] + currentImage[i + blockSize]) / 2.0;
+                sdata3[tid] += currentImage[i];
+                if (i + blockSize < n)
+                        sdata3[tid] += currentImage[i + blockSize];
 
                 i += gridSize;
         }
@@ -645,20 +647,20 @@ __global__ void meanValue(uint8_t *currentImage, double *value, int width, int h
         // sequential addressing
         if (blockSize >= 512){
                 if (tid < 256){
-                        sdata3[tid] = (sdata3[tid + 256] + sdata3[tid]) / 2.0;
+                        sdata3[tid] += sdata3[tid + 256];
                 }
                 __syncthreads();
         }
         if (blockSize >= 256)
         {
                 if (tid < 128){
-                        sdata3[tid] = (sdata3[tid + 128] + sdata3[tid]) / 2.0;
+                        sdata3[tid] += sdata3[tid + 128];
                 }
                 __syncthreads();
         }
         if (blockSize >= 128){
                 if (tid < 64){
-                        sdata3[tid] = (sdata3[tid + 64] + sdata3[tid]) / 2.0;
+                        sdata3[tid] += sdata3[tid + 64];
                 }
                 __syncthreads();
         }
@@ -908,8 +910,10 @@ __global__ void textureDetermination(uint8_t *currentImage, double *value, int w
 	double temp = 0.0;
 
     while (i < n) {
-        
-        temp += (currentImage[i] - currentImage[i + 1]) * (currentImage[i] - currentImage[i + 1]) * p;
+        if (i + 1 < n){
+            double diff = (double)currentImage[i] - (double)currentImage[i + 1];
+            temp += diff * diff * p;
+        }
 
         i += gridSize;
     }
@@ -1003,8 +1007,10 @@ void ImageProcessing::histogramGPU(uint8_t *currentImage, unsigned int *h_Result
 		cout << "Computed Histogram in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 
 
@@ -1043,6 +1049,8 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
 	float *histT = (float*)malloc(256 * (sizeof(float)));
 	int *histTr = (int*)malloc(256 * (sizeof(int)));
 	int size = width * height;
+	if (size <= 0)
+		return;
 	
 	for (int i = 0; i < 256; i++){
 		probDist[i] = 0.f;
@@ -1058,11 +1066,7 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
 		for (int j = 0; j <= i; j++){
 			histT[i] += probDist[j];
 		}
-		histT[i] = histT[i] * float(i);
-	}
-
-	for (int i = 0; i < 256; i++){
-		histTr[i] = floor(histT[i]);
+		histTr[i] = (int)roundf(histT[i] * 255.0f);
 	}
 
 	dim3 blockSize;
@@ -1070,8 +1074,8 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
 
 	unsigned int *histTrafo;
 	gpuError(cudaMalloc((void **)&histTrafo, 256 * sizeof(int)));
@@ -1086,6 +1090,7 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
         }
 
 	histogramEqualization <<<gridSize, blockSize>>>(currentImage, outputImage, histTrafo, width, height);
+	gpuError(cudaFree(histTrafo));
 	
 	if(timing){
                 float memsettime;
@@ -1095,8 +1100,10 @@ void ImageProcessing::histogramEqualizationGPU(uint8_t *currentImage, uint8_t *o
                 cout << "Performed Histogram Equalization in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 	free(probDist);
 	free(histT);
@@ -1121,6 +1128,9 @@ Following function performs dilation
 ----------------------------------------------------------------------------------------*/
 void ImageProcessing::dilateGPU(uint8_t *currentImage, uint8_t *outputImage, int structure, int width, int height, bool timing){
 	
+	if (structure < 1 || width <= 0 || height <= 0)
+		return;
+
         cudaEvent_t start,stop;
         if(timing){
                 cudaEventCreate(&start);
@@ -1157,8 +1167,10 @@ void ImageProcessing::dilateGPU(uint8_t *currentImage, uint8_t *outputImage, int
                 cout << "Dilated Image of Size " << width << " x " << height << " with Structuring Element Square" << structure << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1174,6 +1186,9 @@ Following function performs erosion
 @param structuringElement (By now: disk1, disk4, disk5, disk6, disk15)
 ----------------------------------------------------------------------------------------*/
 void ImageProcessing::erodeGPU(uint8_t *currentImage, uint8_t *outputImage, int structure, int width, int height, bool timing){
+
+	if (structure < 1 || width <= 0 || height <= 0)
+		return;
 
 	// SINCE SHARED MEMORY SIZE IS VARIOUS, SHARED MEMORY ALLOCATION HAS TO BE DONE IN KERNEL CALL (THIRD ARGUMENT INSIDE BREACKETS)
 	// SE IS LOADED TO CONSTANT MEMORY, S.T. FAST MEMORY ACCESS IS GUARENTEED
@@ -1215,8 +1230,10 @@ void ImageProcessing::erodeGPU(uint8_t *currentImage, uint8_t *outputImage, int 
                 cout << "Dilated Image of Size " << width << " x " << height << " with Structuring Element Square" << structure << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1240,20 +1257,23 @@ Following function performs gaussian Filter
 ----------------------------------------------------------------------------------------*/
 void ImageProcessing::gaussianBlurGPU(uint8_t *currentImage, uint8_t *outputImage, int width, int height, int radius, bool timing){
 	
+	if (radius < 1 || width <= 0 || height <= 0)
+		return;
+
 	// SINCE SHARED MEMORY SIZE IS VARIOUS, SHARED MEMORY ALLOCATION HAS TO BE DONE IN KERNEL CALL (THIRD ARGUMENT INSIDE BREACKETS)
 
 	float *convKernel;
 	float kernelSum = 0;
 
 	int kernelSize = radius * 2 + 1;
-	int sharedMemAllocRow = radius + 128 + radius * sizeof(uint8_t);
+	int sharedMemAllocRow = (radius + 128 + radius) * sizeof(uint8_t);
 	int sharedMemAllocCol = 16 * (radius + 48 + radius) * sizeof(uint8_t);
 
 	convKernel = (float *)malloc(kernelSize * sizeof(float));
 
 	for (int i = 0; i < kernelSize; i++){
 		float dist = (float)(i - radius) / (float)radius;
-		convKernel[i] = (float)1 / (float) (radius*radius); //expf(-dist * dist / 2);
+		convKernel[i] = expf(-0.5f * dist * dist);
 		kernelSum += convKernel[i];
 	}
 	for (int i = 0; i < kernelSize; i++){
@@ -1262,6 +1282,7 @@ void ImageProcessing::gaussianBlurGPU(uint8_t *currentImage, uint8_t *outputImag
 	
 	// KERNEL IS LOADED TO CONSTANT MEMORY
 	gpuError(cudaMemcpyToSymbol(convolutionKernel, convKernel, kernelSize * sizeof(float)));
+	free(convKernel);
 
 	dim3 blockGridRows(iDivUp(width, 128), height);
 	dim3 blockGridColumns(iDivUp(width, 16), iDivUp(height, 48));
@@ -1278,7 +1299,7 @@ void ImageProcessing::gaussianBlurGPU(uint8_t *currentImage, uint8_t *outputImag
         }
 
 
-	convolutionRowGPU <<<blockGridRows, threadBlockRows, sharedMemAllocRow>>>(currentImage, outputImage, width, height, radius);
+	convolutionRowGPU <<<blockGridRows, threadBlockRows, sharedMemAllocRow>>>(outputImage, currentImage, width, height, radius);
 	convolutionColumnGPU <<<blockGridColumns, threadBlockColumns, sharedMemAllocCol>>>(outputImage, outputImage, width, height, radius, 16 * threadBlockColumns.y, width * threadBlockColumns.y);
 	
         if(timing){
@@ -1289,8 +1310,10 @@ void ImageProcessing::gaussianBlurGPU(uint8_t *currentImage, uint8_t *outputImag
                 cout << "Gaussian Blur applied on Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 //gpuError(cudaThreadSynchronize());
 	//gpuError(cudaFree(convolutionKernel));
@@ -1315,11 +1338,14 @@ Following function computed the maximal value and position inside an image
 ----------------------------------------------------------------------------------------*/
 void ImageProcessing::maximalElementGPU(uint8_t *currentImage, int &val, int &x, int &y, int width, int height, bool timing){
 	
+	if (width <= 0 || height <= 0)
+		return;
+
 	dim3 blockSize;
 	blockSize.x = 256;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width * height / blockSize.x);
+	gridSize.x = iDivUp(width * height, blockSize.x);
 	
 	int *h_coord =new int[gridSize.x];
 	int *h_value = new int[gridSize.x];
@@ -1382,8 +1408,10 @@ void ImageProcessing::maximalElementGPU(uint8_t *currentImage, int &val, int &x,
                 cout << "Determine maximal Element in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 	gpuError(cudaMemcpy(h_value, value, gridSize.x * sizeof(int), cudaMemcpyDeviceToHost));
 	gpuError(cudaMemcpy(h_coord, location, gridSize.x * sizeof(int), cudaMemcpyDeviceToHost));
@@ -1391,12 +1419,10 @@ void ImageProcessing::maximalElementGPU(uint8_t *currentImage, int &val, int &x,
 	cout << "Direct from GPU: " << h_coord[0] << endl;
 
 	val = 0;
-	int temp = 0;	
-	int h_location;
+	int h_location = 0;
 	for(int i = 0; i < gridSize.x; i++){
-
-		val = max(h_value[i], val);
-		if(temp != val){
+		if(h_value[i] > val){
+			val = h_value[i];
 			h_location = h_coord[i];
 		}
 	}
@@ -1406,6 +1432,10 @@ void ImageProcessing::maximalElementGPU(uint8_t *currentImage, int &val, int &x,
 
 	x = h_location % width;
 	y = (int)floor((float)h_location / (float)width);
+	gpuError(cudaFree(value));
+	gpuError(cudaFree(location));
+	delete[] h_value;
+	delete[] h_coord;
 }
 
 
@@ -1413,18 +1443,21 @@ void ImageProcessing::maximalElementGPU(uint8_t *currentImage, int &val, int &x,
 
 void ImageProcessing::meanVaueGPU(uint8_t *currentImage, int &val, int width, int height, bool timing){
 
+	if (width <= 0 || height <= 0)
+		return;
+
         dim3 blockSize;
         blockSize.x = 256;
 
         dim3 gridSize;
-        gridSize.x = ceil(width * height / blockSize.x);
+        gridSize.x = iDivUp(width * height, blockSize.x);
 
         double *h_value = new double[gridSize.x];
         double *value;
 
         int smemSize = blockSize.x * sizeof(double);
 
-        gpuError(cudaMalloc((void **)&value, gridSize.x * sizeof(int)));
+        gpuError(cudaMalloc((void **)&value, gridSize.x * sizeof(double)));
 
         int threads = 256;
 
@@ -1477,20 +1510,21 @@ void ImageProcessing::meanVaueGPU(uint8_t *currentImage, int &val, int width, in
                 cout << "Determine mean in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
-
-        gpuError(cudaMemcpy(h_value, value, gridSize.x * sizeof(int), cudaMemcpyDeviceToHost));
-
-        val = 0;
-	double temp;
-        for(int i = 0; i < gridSize.x; i++){
-
-                temp += h_value[i] / gridSize.x;
-
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
         }
 
-	val = ceil(temp);
+        gpuError(cudaMemcpy(h_value, value, gridSize.x * sizeof(double), cudaMemcpyDeviceToHost));
+
+	double temp = 0.0;
+        for(int i = 0; i < gridSize.x; i++){
+                temp += h_value[i];
+        }
+
+	val = (int)round(temp / (width * height));
+	gpuError(cudaFree(value));
+	delete[] h_value;
 
 }
 
@@ -1513,7 +1547,7 @@ void ImageProcessing::getAreaGPU(uint8_t *currentImage, double &area, int width,
 	blockSize.x = 256;
 
 	dim3 gridSize;
-	gridSize.x = ceil((width*height) / blockSize.x);
+	gridSize.x = iDivUp(width * height, blockSize.x);
 
 	int smemSize = blockSize.x * sizeof(int);
 
@@ -1571,8 +1605,10 @@ void ImageProcessing::getAreaGPU(uint8_t *currentImage, double &area, int width,
                 cout << "Get white Area in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 	gpuError(cudaThreadSynchronize());
 
@@ -1588,7 +1624,7 @@ void ImageProcessing::getAreaGPU(uint8_t *currentImage, double &area, int width,
 
 	}
 
-	delete area1;
+	delete[] area1;
 
 }
 
@@ -1614,8 +1650,8 @@ void ImageProcessing::invertGPU(uint8_t *currentImage, uint8_t *outputImage, int
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
 	
 	cudaEvent_t start,stop;
 	if(timing){
@@ -1634,8 +1670,12 @@ void ImageProcessing::invertGPU(uint8_t *currentImage, uint8_t *outputImage, int
 		cout << "Invert Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
 	}
 
-	cudaEventDestroy(start);
-	cudaEventDestroy(stop);
+	if(timing){
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
+	}
 
 }
 
@@ -1657,8 +1697,8 @@ void ImageProcessing::blackwhiteGPU(uint8_t *currentImage, uint8_t *outputImage,
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
 
         cudaEvent_t start,stop;
         if(timing){
@@ -1677,8 +1717,10 @@ void ImageProcessing::blackwhiteGPU(uint8_t *currentImage, uint8_t *outputImage,
                 cout << "Turn Image of Size " << width << " x " << height << " to blackwhite in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1700,8 +1742,8 @@ void ImageProcessing::subtrachtImagesGPU(uint8_t *inImage1, uint8_t *inImage2, u
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
 
         cudaEvent_t start,stop;
         if(timing){
@@ -1720,8 +1762,10 @@ void ImageProcessing::subtrachtImagesGPU(uint8_t *inImage1, uint8_t *inImage2, u
                 cout << "Subtracted Images of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1743,8 +1787,8 @@ void ImageProcessing::imadjustGPU(uint8_t *currentImage, uint8_t *outputImage, i
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
 
         cudaEvent_t start,stop;
         if(timing){
@@ -1763,8 +1807,10 @@ void ImageProcessing::imadjustGPU(uint8_t *currentImage, uint8_t *outputImage, i
                 cout << "Adjusted Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1788,8 +1834,8 @@ void ImageProcessing::removeAreaGPU(uint8_t *currentImage, uint8_t *outputImage,
 	blockSize.y = 16;
 
 	dim3 gridSize;
-	gridSize.x = ceil(width / blockSize.x);
-	gridSize.y = ceil(height / blockSize.y);
+	gridSize.x = iDivUp(width, blockSize.x);
+	gridSize.y = iDivUp(height, blockSize.y);
         
 	cudaEvent_t start,stop;
         if(timing){
@@ -1808,8 +1854,10 @@ void ImageProcessing::removeAreaGPU(uint8_t *currentImage, uint8_t *outputImage,
                 cout << "Removed Area (Radius " << radius <<  ") in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1835,8 +1883,8 @@ void ImageProcessing::linearTransformationGPU(uint8_t *currentImage, uint8_t *ou
         blockSize.y = 16;
 
         dim3 gridSize;
-        gridSize.x = ceil(width / blockSize.x);
-        gridSize.y = ceil(height / blockSize.y);
+        gridSize.x = iDivUp(width, blockSize.x);
+        gridSize.y = iDivUp(height, blockSize.y);
 
         cudaEvent_t start,stop;
         if(timing){
@@ -1855,8 +1903,10 @@ void ImageProcessing::linearTransformationGPU(uint8_t *currentImage, uint8_t *ou
                 cout << "Linear Transformation accomplished in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 }
 
@@ -1884,7 +1934,7 @@ void ImageProcessing::textureGPU(uint8_t *currentImage, double &texture, int wid
     blockSize.x = 256;
     
     dim3 gridSize;
-    gridSize.x = ceil((width*height) / blockSize.x);
+    gridSize.x = iDivUp(width * height, blockSize.x);
     
 	double *h_texture = new double[gridSize.x];
 
@@ -1947,8 +1997,10 @@ void ImageProcessing::textureGPU(uint8_t *currentImage, double &texture, int wid
                 cout << "Compute Contrast in Image of Size " << width << " x " << height << " in " << memsettime << " milliseconds" << endl;
         }
 
-        cudaEventDestroy(start);
-        cudaEventDestroy(stop);
+        if(timing){
+                cudaEventDestroy(start);
+                cudaEventDestroy(stop);
+        }
 
 	cudaThreadSynchronize();
     
@@ -1965,5 +2017,5 @@ void ImageProcessing::textureGPU(uint8_t *currentImage, double &texture, int wid
 	}
     
     	gpuError(cudaFree(d_texture));
-	delete h_texture;
+	delete[] h_texture;
 }

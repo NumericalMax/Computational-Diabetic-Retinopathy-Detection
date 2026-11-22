@@ -19,30 +19,25 @@ SE10 = strel('square',10);
 SE120 = strel('square', 120);
 
 % Image-Labels in Folder
-labels = dir(imagePath);
-rowValue = struct2table(labels);
-rowValue = rowValue.name;
+entries = dir(imagePath);
+labels = entries(~[entries.isdir]);
+rowValue = {labels.name};
 
 % Number of Elements in Folder
-length = size(labels,1);
+length = numel(labels);
 
 % Initialze Feature Matrix
-MAT = zeros(length - 3, 6);
-MAT = array2table(MAT);
-MAT.Properties.VariableNames(1) = {'Label'};
-MAT.Properties.VariableNames(2) = {'Class'};
-MAT.Properties.VariableNames(3) = {'Bloodvessel'};
-MAT.Properties.VariableNames(4) = {'Exudate'};
-MAT.Properties.VariableNames(5) = {'Haemorrhages'};
-MAT.Properties.VariableNames(6) = {'Contrast'};
+MAT = table(repmat({''}, length, 1), zeros(length, 1), zeros(length, 1), ...
+    zeros(length, 1), zeros(length, 1), zeros(length, 1), ...
+    'VariableNames', {'Label', 'Class', 'Bloodvessel', 'Exudate', ...
+    'Haemorrhages', 'Contrast'});
 
 % Iterate over all Images in Folder
-% On OsX Files in Folder start at 4
-for i = 4:104
+for i = 1:length
     
-    labels(i).name
+    fileName = labels(i).name
     % Load Image
-    J = imread(strcat(imagePath, labels(i).name));
+    J = imread(fullfile(imagePath, fileName));
     haemorrhage = J;
     % Size of Image
     [width, height, components] = size(J);
@@ -77,7 +72,8 @@ for i = 4:104
     for e = 1:k
         for d = 1:l
             if ((- round(k/2) + e)^2 + (- round(l/2) + d)^2) < round(3*k / 4)^2
-                if(a - round(k/2) + e < width && b - round(l/2) + d < height)
+                if(a - round(k/2) + e > 0 && a - round(k/2) + e <= width && ...
+                   b - round(l/2) + d > 0 && b - round(l/2) + d <= height)
                     opticDisc(a - round(k/2) + e, b - round(l/2) + d) = 255;
                 end
             end
@@ -140,7 +136,7 @@ for i = 4:104
     haemorrhage(:,:,2) = exudate;
     haemorrhage(:,:,3) = bloodvessel;
     whiteHaem = size(find(haemorrhage==255));
-    whiteHaemorrhage = whiteHaem(1) / (width * height);
+    whiteHaemorrhage = whiteHaem(1) / (3 * width * height);
     
     % Contrast Determination
     glcms = graycomatrix(J,'NumLevels',256);
@@ -160,12 +156,12 @@ for i = 4:104
         w = waitforbuttonpress;
         
         if w == 0
-            %MAT(i - 3, 1) = {rowValue.name(i)};
-            MAT(i - 3, 2) = {class};
-            MAT(i - 3, 3) = {whiteBloodvessel};
-            MAT(i - 3, 4) = {whiteExudate};
-            MAT(i - 3, 5) = {whiteHaemorrhage};
-            MAT(i - 3, 6) = {contrast.Contrast};
+            MAT(i, 1) = {rowValue{i}};
+            MAT(i, 2) = {class};
+            MAT(i, 3) = {whiteBloodvessel};
+            MAT(i, 4) = {whiteExudate};
+            MAT(i, 5) = {whiteHaemorrhage};
+            MAT(i, 6) = {contrast.Contrast};
             disp('Accepted')
             
         else
@@ -176,12 +172,12 @@ for i = 4:104
         
     else
         
-        %MAT(i - 3, 1) = {rowValue.name(i)};
-        MAT(i - 3, 2) = {class};
-        MAT(i - 3, 3) = {whiteBloodvessel};
-        MAT(i - 3, 4) = {whiteExudate};
-        MAT(i - 3, 5) = {whiteHaemorrhage};
-        MAT(i - 3, 6) = {contrast.Contrast};
+        MAT(i, 1) = {rowValue{i}};
+        MAT(i, 2) = {class};
+        MAT(i, 3) = {whiteBloodvessel};
+        MAT(i, 4) = {whiteExudate};
+        MAT(i, 5) = {whiteHaemorrhage};
+        MAT(i, 6) = {contrast.Contrast};
         
     end
     

@@ -4,6 +4,7 @@
 
 #include <sstream>
 #include <fstream>
+#include <cstdlib>
 
 #include "ImageProcessing.h"
 #include "Jpgd.h"
@@ -117,7 +118,7 @@ void readInLabels(string resDirectory){
 int main(){
 	
 	ImageProcessing imgProcessor;
-	uint8_t *host_imgdata, *device_orgdata, *device_imgdata, *device_imgdata1, *device_imgdata2;
+	uint8_t *host_imgdata = NULL, *device_orgdata = NULL, *device_imgdata = NULL, *device_imgdata1 = NULL, *device_imgdata2 = NULL;
 	int bufSize, comps, width, height, length;
 	bool timing = true;	
 
@@ -160,6 +161,17 @@ int main(){
 		cout << i << "/" << length << " : " << images.at(i).c_str() << endl;
 		
 		host_imgdata = decompress_jpeg_image_from_file(images.at(i).c_str(), &width, &height, &comps, 1);
+		if (host_imgdata == NULL){
+			cerr << "Unable to decode JPEG: " << images.at(i) << endl;
+			i++;
+			continue;
+		}
+		if (width <= 0 || height <= 0){
+			cerr << "Invalid JPEG dimensions: " << images.at(i) << endl;
+			free(host_imgdata);
+			i++;
+			continue;
+		}
 
 		cout << width *height * comps << endl;
 
@@ -169,15 +181,37 @@ int main(){
 		uint8_t *finalImageH = new uint8_t[width*height]();
 		uint8_t *finalImageM = new uint8_t[width*height]();	
 
-		cudaMalloc((void **)&device_orgdata, bufSize);
-		cudaMalloc((void **)&device_imgdata, bufSize);
-		cudaMalloc((void **)&device_imgdata1, bufSize);
-		cudaMalloc((void **)&device_imgdata2, bufSize);
+		if (cudaMalloc((void **)&device_orgdata, bufSize) != cudaSuccess ||
+		    cudaMalloc((void **)&device_imgdata, bufSize) != cudaSuccess ||
+		    cudaMalloc((void **)&device_imgdata1, bufSize) != cudaSuccess ||
+		    cudaMalloc((void **)&device_imgdata2, bufSize) != cudaSuccess){
+			cerr << "Unable to allocate CUDA image buffers" << endl;
+			cudaFree(device_orgdata);
+			cudaFree(device_imgdata);
+			cudaFree(device_imgdata1);
+			cudaFree(device_imgdata2);
+			free(host_imgdata);
+			i++;
+			continue;
+		}
 
-		cudaMemcpy(device_orgdata, host_imgdata, bufSize, cudaMemcpyHostToDevice);
-		cudaMemcpy(device_imgdata, device_orgdata, bufSize, cudaMemcpyDeviceToDevice);
-		cudaMemcpy(device_imgdata1, device_orgdata, bufSize, cudaMemcpyDeviceToDevice);
-		cudaMemcpy(device_imgdata2, device_orgdata, bufSize, cudaMemcpyDeviceToDevice);
+		if (cudaMemcpy(device_orgdata, host_imgdata, bufSize, cudaMemcpyHostToDevice) != cudaSuccess ||
+		    cudaMemcpy(device_imgdata, device_orgdata, bufSize, cudaMemcpyDeviceToDevice) != cudaSuccess ||
+		    cudaMemcpy(device_imgdata1, device_orgdata, bufSize, cudaMemcpyDeviceToDevice) != cudaSuccess ||
+		    cudaMemcpy(device_imgdata2, device_orgdata, bufSize, cudaMemcpyDeviceToDevice) != cudaSuccess){
+			cerr << "Unable to copy image data to CUDA" << endl;
+			cudaFree(device_orgdata);
+			cudaFree(device_imgdata);
+			cudaFree(device_imgdata1);
+			cudaFree(device_imgdata2);
+			delete[] finalImage;
+			delete[] finalImageEx;
+			delete[] finalImageH;
+			delete[] finalImageM;
+			free(host_imgdata);
+			i++;
+			continue;
+		}
 		cudaThreadSynchronize();
 		
 		imgProcessor.invertGPU(device_orgdata, device_imgdata1, width, height, timing);
@@ -209,9 +243,22 @@ int main(){
 
 		cudaThreadSynchronize();
 
-		cudaMemcpy(finalImageEx, device_imgdata, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(finalImageH, device_imgdata1, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost);
-		cudaMemcpy(finalImageM, device_imgdata2, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost);
+		if (cudaMemcpy(finalImageEx, device_imgdata, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost) != cudaSuccess ||
+		    cudaMemcpy(finalImageH, device_imgdata1, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost) != cudaSuccess ||
+		    cudaMemcpy(finalImageM, device_imgdata2, width*height*sizeof(uint8_t), cudaMemcpyDeviceToHost) != cudaSuccess){
+			cerr << "Unable to copy processed image data to host" << endl;
+			delete[] finalImageEx;
+			delete[] finalImageH;
+			delete[] finalImageM;
+			delete[] finalImage;
+			free(host_imgdata);
+			cudaFree(device_orgdata);
+			cudaFree(device_imgdata);
+			cudaFree(device_imgdata1);
+			cudaFree(device_imgdata2);
+			i++;
+			continue;
+		}
 
 		for(int l = 0; l < height*width; l ++){
 				
@@ -224,11 +271,11 @@ int main(){
 		string saveAt(directoryDest + labels.at(i) + ".jpeg");
 		compress_image_to_jpeg_file(saveAt.c_str(), width, height, 3, finalImage);
 		
-		delete finalImageEx;
-		delete finalImageH;
-        delete finalImageM;
-		delete finalImage;
-		delete host_imgdata;
+		delete[] finalImageEx;
+		delete[] finalImageH;
+		delete[] finalImageM;
+		delete[] finalImage;
+		free(host_imgdata);
 
 		cudaFree(device_orgdata);
 		cudaFree(device_imgdata);
